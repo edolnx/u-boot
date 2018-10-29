@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0+
+#
+# Copyright (C) 2018, Manivannan Sadhasivam <manivannanece23@gmail.com>
+
+obj-y	:= u540-c000.o
