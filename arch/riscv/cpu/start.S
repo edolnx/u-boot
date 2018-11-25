@@ -31,6 +31,11 @@
 #define SYM_SIZE		0x18
 #endif
 
+# Global variable to store firmware passed FDT address
+.globl _fdt_addr
+_fdt_addr:
+	.quad CONFIG_SYS_FDT_BASE
+
 .section      .text
 .globl _start
 _start:
@@ -63,6 +68,9 @@ handle_reset:
  * Set stackpointer in internal/ex RAM to call board_init_f
  */
 call_board_init_f:
+/* Save firmware passed FDT address */
+	sd  a1, _fdt_addr, t0
+
 	li  t0, -16
 	li  t1, CONFIG_SYS_INIT_SP_ADDR
 	and sp, t1, t0	/* force 16 byte alignment */

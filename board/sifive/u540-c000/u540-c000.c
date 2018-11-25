@@ -33,3 +33,9 @@ int dram_init_banksize(void)
 
 	return 0;
 }
+
+void *board_fdt_blob_setup(void)
+{
+	/* Always use FDT passed by firmware */
+	return (void *)_fdt_addr;
+}
