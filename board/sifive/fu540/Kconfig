@@ -16,6 +16,9 @@ config SYS_TEXT_BASE
 	default 0x80000000 if !RISCV_SMODE
 	default 0x80200000 if RISCV_SMODE
 
+config MAIN_HART
+	default 1
+
 config BOARD_SPECIFIC_OPTIONS # dummy
 	def_bool y
 	select GENERIC_RISCV
@@ -38,5 +41,6 @@ config BOARD_SPECIFIC_OPTIONS # dummy
 	imply PHY_LIB
 	imply PHY_MSCC
 	imply SIFIVE_SERIAL
+	imply SMP
 
 endif
