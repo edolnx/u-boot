@@ -13,6 +13,7 @@
 #include <config.h>
 #include <common.h>
 #include <elf.h>
+#include <asm/csr.h>
 #include <asm/encoding.h>
 #include <generated/asm-offsets.h>
 
@@ -45,6 +46,23 @@ _start:
 	/* mask all interrupts */
 	csrw	MODE_PREFIX(ie), zero
 
+#ifdef CONFIG_SMP
+	/* check if hart is within range */
+	/* s0: hart id */
+	li	t0, CONFIG_NR_CPUS
+	bge	s0, t0, hart_out_of_bounds_loop
+#endif
+
+#ifdef CONFIG_SMP
+	/* set xSIE bit to receive IPIs */
+#ifdef CONFIG_RISCV_MMODE
+	li	t0, MIE_MSIE
+#else
+	li	t0, SIE_SSIE
+#endif
+	csrs	MODE_PREFIX(ie), t0
+#endif
+
 /*
  * Set stackpointer in internal/ex RAM to call board_init_f
  */
@@ -56,7 +74,25 @@ call_board_init_f:
 call_board_init_f_0:
 	mv	a0, sp
 	jal	board_init_f_alloc_reserve
+
+	/*
+	 * Set global data pointer here for all harts, uninitialized at this
+	 * point.
+	 */
+	mv	gp, a0
+
+	/* setup stack */
+#ifdef CONFIG_SMP
+	/* s0: hart id */
+	slli	t0, s0, CONFIG_STACK_SIZE_SHIFT
+	sub	sp, a0, t0
+#else
 	mv	sp, a0
+#endif
+
+	/* Continue on main hart, others branch to secondary_hart_loop */
+	li	t0, CONFIG_MAIN_HART
+	bne	s0, t0, secondary_hart_loop
 
 	la	t0, prior_stage_fdt_address
 	SREG	s1, 0(t0)
@@ -95,7 +131,14 @@ relocate_code:
  *Set up the stack
  */
 stack_setup:
+#ifdef CONFIG_SMP
+	/* s0: hart id */
+	slli	t0, s0, CONFIG_STACK_SIZE_SHIFT
+	sub	sp, s2, t0
+#else
 	mv	sp, s2
+#endif
+
 	la	t0, _start
 	sub	t6, s4, t0		/* t6 <- relocation offset */
 	beq	t0, s4, clear_bss	/* skip relocation */
@@ -175,12 +218,29 @@ clear_bss:
 	add	t0, t0, t6		/* t0 <- rel __bss_start in RAM */
 	la	t1, __bss_end		/* t1 <- rel __bss_end in FLASH */
 	add	t1, t1, t6		/* t1 <- rel __bss_end in RAM */
-	beq	t0, t1, call_board_init_r
+	beq	t0, t1, relocate_secondary_harts
 
 clbss_l:
 	SREG	zero, 0(t0)		/* clear loop... */
 	addi	t0, t0, REGBYTES
 	bne	t0, t1, clbss_l
+
+relocate_secondary_harts:
+#ifdef CONFIG_SMP
+	/* send relocation IPI */
+	la	t0, secondary_hart_relocate
+	add	a0, t0, t6
+
+	/* store relocation offset */
+	mv	s5, t6
+
+	mv	a1, s2
+	mv	a2, s3
+	jal	smp_call_function
+
+	/* restore relocation offset */
+	mv	t6, s5
+#endif
 
 /*
  * We are done. Do not return, instead branch to second part of board
@@ -202,3 +262,43 @@ call_board_init_r:
  * jump to it ...
  */
 	jr	t4			/* jump to board_init_r() */
+
+#ifdef CONFIG_SMP
+hart_out_of_bounds_loop:
+	/* Harts in this loop are out of bounds, increase CONFIG_NR_CPUS. */
+	wfi
+	j	hart_out_of_bounds_loop
+#endif
+
+#ifdef CONFIG_SMP
+/* SMP relocation entry */
+secondary_hart_relocate:
+	/* a1: new sp */
+	/* a2: new gd */
+	/* s0: hart id */
+
+	/* setup stack */
+	slli	t0, s0, CONFIG_STACK_SIZE_SHIFT
+	sub	sp, a1, t0
+
+	/* update global data pointer */
+	mv	gp, a2
+#endif
+
+secondary_hart_loop:
+	wfi
+
+#ifdef CONFIG_SMP
+	csrr	t0, MODE_PREFIX(ip)
+#ifdef CONFIG_RISCV_MMODE
+	andi	t0, t0, MIE_MSIE
+#else
+	andi	t0, t0, SIE_SSIE
+#endif
+	beqz	t0, secondary_hart_loop
+
+	mv	a0, s0
+	jal	handle_ipi
+#endif
+
+	j	secondary_hart_loop

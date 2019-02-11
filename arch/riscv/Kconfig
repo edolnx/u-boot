@@ -144,4 +144,16 @@ config SBI_IPI
 	default y if RISCV_SMODE
 	depends on SMP
 
+config MAIN_HART
+	int "Main hart in system"
+	default 0
+	help
+	  Some SoCs include harts of various sizes, some of which might not
+	  be suitable for running U-Boot. CONFIG_MAIN_HART is used to select
+	  the hart U-Boot runs on.
+
+config STACK_SIZE_SHIFT
+	int
+	default 13
+
 endmenu
